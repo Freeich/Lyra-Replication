@@ -1,0 +1,31 @@
+# ========= IDE / Editor =========
+# JetBrains Rider / IDEA
+.idea/
+*.sln.iml
+# Visual Studio
+.vs/
+*.VC.db
+*.VC.VC.opendb
+# Rider user config
+*.DotSettings.user
+# VSCode settings (如果不需要也忽略)
+.vscode/
+
+# ========= Unreal Engine =========
+# 二进制文件
+Binaries/
+# 中间产物
+Intermediate/
+# 缓存
+DerivedDataCache/
+# 自动生成的存档、日志、临时数据
+Saved/
+
+# ========= Build 输出 =========
+Build/
+
+# ========= 用户/系统 文件 =========
+# macOS
+.DS_Store
+# 日志
+*.log
