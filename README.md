@@ -104,7 +104,7 @@
   - TurnInPlaceEntry ➡️ TurnInPlaceRecovery之间的过渡条件的Blend时间应该设置为0，因为播放的是同一个动画。否则会因为读取Curve延迟而在两个状态之间一直跳转，从而卡在这里。
   - 如果Aim Offset旋转的太快，会导致Spine过于扭曲，
     - 通过Clamp RootYawOffset来防止这种情况
-    - 如图所说![image-20250725185432701](C:\Users\Administrator\AppData\Roaming\Typora\typora-user-images\image-20250725185432701.png)
+    - 如图所说![image-20250725185432701](assets/image-20250725185432701.png)
   - TurnInPlaceRecovery ➡️ TurnInPlaceEntry之间的过度的Blend Logic应该设置为Inertialization，否则会导致抽搐，当Turn 180度的时候尤其明显
     - 原因如下：
     - <img src="assets/image-20250628014024676.png" alt="image-20250628014024676" style="zoom: 80%;" />
