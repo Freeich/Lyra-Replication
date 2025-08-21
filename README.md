@@ -158,6 +158,11 @@
   - 在骨骼资产中创建Blend Mask
   - Blend Mask可以详细设置每一根骨骼被混合的程度
 
+### Stride Warping vs Distance Matching
+
+- Distance Matching：根据运动距离，**调整播放速度**
+- Stride Warping：不调整播放速度，**调整步长**
+
 
 
 
