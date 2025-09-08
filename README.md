@@ -36,8 +36,6 @@
 
 为了防止所有的角色进行"环太平洋"（同步）的Idle动作
 
-
-
 ### Stop Animation：
 
 - 核心：Distance Matching解决滑步问题
@@ -55,7 +53,6 @@
 
 ### Start Animation：
 
-- 
 - 遇到的问题，Max Transition Per Frame 设置为 1，使每一帧只计算一次转换条件。解决一开始按向右的时候，跳过Start直接到Cycle的情况。
 - 使用Advance Time By Distance Matching 节点：来匹配角色实际走过的距离，和动画序列中走过的距离。
 
@@ -77,7 +74,7 @@
 
 - 存在的BUG
   - 现在Stop to Pivot之间还是有点问题，会突变，而不是丝滑的Blend
-  - Pivot状态中，切换武器会重新播放Pivot动画，这样如果一直切换武器就会一直播放Pivot动画
+  - Pivot状态中，切换武器会重新播放Pivot动画，这样如果一直切换武器就会一直播放Pivot动画（已解决）
     - 在Pivot到Cycle之间加一个传递条件，如果检测到Anim Layer是否发生了改变(即换了持枪状态)，则直接进入跑步状态。
     - 在Locomotion SM中的Start状态中添加StartLayerNode的Tag，然后在Locomotion SM的更新函数中，检查Anim Layer是否改变过。
     - 至于为什么只检查Start状态的Layer就行，是因为所有的状态都在同一个Layer里，随便检查一个就行。![image-20250725211356155](assets/image-20250725211356155.png)
@@ -93,13 +90,15 @@
   - 每一帧中，用当前Actor的世界旋转 减去 每一帧经历的旋转 得出Mesh应该旋转的偏移量，再设置Mesh为这个偏移量，从而让Mesh不跟随Actor旋转，始终在原地。
 - 工作流程：
   - 随时更新RootYawOffset
-  - Idle是Accumulate状态，其他是Blend Out状态
+  - Idle是Accumulate（累加）状态，其他是Blend Out（混出）状态，Blend Out即把累积到的RootYawOffset平滑的设置为0。
   - 给别的状态的Orientation Warping加上RootYawOffset，因为实际上Orientation Warping原理是根据 Mesh朝向 - 运动朝向，但是之前Mesh朝向和Camera朝向是相同的，所以之前都是用的Camera朝向。但是现在加上了YawOffset，则需要Camera朝向 - RootYawOffset才是Mesh朝向。
     - 公式：
     - Rv-(Rm=Rc)（之前）
     - Rv-(Rm=Rc+RootYawOffset) ➡️ Rv-Rc-RootYawOffset
   - 判断向左还是向右，转90还是180，并设置对应动画
-  - 在Sequence evaluator的On Update方法中，一帧一帧的播放动画，即添加TurnInPlaceTime变量，每一帧增加DeltaTime时间，再设置此时间为Explicit Time，播放对应时间的帧动画
+  - 在Sequence evaluator的On Update方法中，一帧一帧的播放动画，即添加TurnInPlaceTime变量，每一帧增加DeltaTime时间，再设置此时间为Explicit Time，播放对应时间的帧动画。
+  - 之后在IsTruning曲线值变为0的时候（即停止转身，开始进入TurnInPlaceRecovery的时候），感觉累积的TurnInPlaceTime直接在该时间播放TurnInPlace动画。
+  - 在TurnInPlace动画中设置root转动角度曲线，当触发TurnInPlace动画的时候，用RootYawOffset减去TurnInPlace转动的角度，就是当前的RootYawOffset。
 - 当前章节的BUG：
   - TurnInPlaceEntry ➡️ TurnInPlaceRecovery之间的过渡条件的Blend时间应该设置为0，因为播放的是同一个动画。否则会因为读取Curve延迟而在两个状态之间一直跳转，从而卡在这里。
   - 如果Aim Offset旋转的太快，会导致Spine过于扭曲，
@@ -133,20 +132,131 @@
 - 使用AimOffset资产
   - 实际上也是Blend Space，Blend各个角度的姿势
 - 使用Aim Offset Player节点，混合LocomotionSM状态机出来的动画
+- Aim的角度
+  - AimYaw取自RootYawOffset的负数
+  - AimPitch取自root的世界Pitch旋转
+
 
 ### Weapons
 
 - 如果要Attach双手武器，必须骨骼里带Weapon骨骼才行，否则只能Attach单手武器
   - 需要问问GPT原因
+  
 - Attach component to component
   - Character SK mesh是Parent, 枪的SK mesh是Target
+  
 - 遇到的Bug：
+
 - Bug1：确保左手保持在枪上与枪同步，需要以下节点
-  - Hand IK Retargeting
+  - Hand IK Retargeting原理
+  
+    -  根据设置的Hand FK Weight来按比例计算左右手的，具体的IK到FK的偏移量
+  
+    - 之后再把这个偏移量附加到设置的要移动的骨骼上。从而实现对与Ik骨骼的移动
+  
+    - 然后之后再使用two bone ik 实现fk向ik骨骼对齐。
+  
+    - 配图
+  
+    - ![image-20250909033053573](assets/image-20250909033053573.png)
+  
+    - 源码：
+  
+    - ```c++
+      void FAnimNode_HandIKRetargeting::EvaluateSkeletalControl_AnyThread(FComponentSpacePoseContext& Output, TArray<FBoneTransform>& OutBoneTransforms)
+      {
+          DECLARE_SCOPE_HIERARCHICAL_COUNTER_ANIMNODE(EvaluateSkeletalControl_AnyThread)
+              ANIM_MT_SCOPE_CYCLE_COUNTER_VERBOSE(HandIKRetargeting, !IsInGameThread());
+      
+          checkSlow(OutBoneTransforms.Num() == 0);
+      
+          //获取当前节点的骨骼容器
+          const FBoneContainer& BoneContainer = Output.Pose.GetPose().GetBoneContainer();
+          //初始化FK位置
+          FVector FKLocation = FVector::ZeroVector;
+          //初始化IK位置
+          FVector IKLocation = FVector::ZeroVector;
+      
+          //根据HandFKWeight的权重选择是使用左手IK位置还是右手IK位置去计算IK到FK的偏移
+          if (FAnimWeight::IsFullWeight(HandFKWeight))
+          {
+              //使用右手的IK和FK位置
+              const FCompactPoseBoneIndex RightHandFKBoneIndex = RightHandFK.GetCompactPoseIndex(BoneContainer);
+              const FCompactPoseBoneIndex RightHandIKBoneIndex = RightHandIK.GetCompactPoseIndex(BoneContainer);
+      
+              FKLocation = Output.Pose.GetComponentSpaceTransform(RightHandFKBoneIndex).GetTranslation();
+              IKLocation = Output.Pose.GetComponentSpaceTransform(RightHandIKBoneIndex).GetTranslation();
+          }
+          else if (!FAnimWeight::IsRelevant(HandFKWeight))
+          {
+              //使用左手的IK和FK位置
+              const FCompactPoseBoneIndex LeftHandFKBoneIndex = LeftHandFK.GetCompactPoseIndex(BoneContainer);
+              const FCompactPoseBoneIndex LeftHandIKBoneIndex = LeftHandIK.GetCompactPoseIndex(BoneContainer);
+      
+              FKLocation = Output.Pose.GetComponentSpaceTransform(LeftHandFKBoneIndex).GetTranslation();
+              IKLocation = Output.Pose.GetComponentSpaceTransform(LeftHandIKBoneIndex).GetTranslation();
+          }
+          else
+          {
+              //获取左右手IK和FK位置
+              const FCompactPoseBoneIndex RightHandFKBoneIndex = RightHandFK.GetCompactPoseIndex(BoneContainer);
+              const FCompactPoseBoneIndex RightHandIKBoneIndex = RightHandIK.GetCompactPoseIndex(BoneContainer);
+              const FCompactPoseBoneIndex LeftHandFKBoneIndex = LeftHandFK.GetCompactPoseIndex(BoneContainer);
+              const FCompactPoseBoneIndex LeftHandIKBoneIndex = LeftHandIK.GetCompactPoseIndex(BoneContainer);
+      
+              const FVector RightHandFKLocation = Output.Pose.GetComponentSpaceTransform(RightHandFKBoneIndex).GetTranslation();
+              const FVector RightHandIKLocation = Output.Pose.GetComponentSpaceTransform(RightHandIKBoneIndex).GetTranslation();
+              const FVector LeftHandFKLocation = Output.Pose.GetComponentSpaceTransform(LeftHandFKBoneIndex).GetTranslation();
+              const FVector LeftHandIKLocation = Output.Pose.GetComponentSpaceTransform(LeftHandIKBoneIndex).GetTranslation();
+      
+              // Compute weight FK and IK hand location. And translation from IK to FK.
+              //运用HandFKWeight去内插获取FK和IK位置
+              FKLocation = FMath::Lerp<FVector>(LeftHandFKLocation, RightHandFKLocation, HandFKWeight);
+              IKLocation = FMath::Lerp<FVector>(LeftHandIKLocation, RightHandIKLocation, HandFKWeight);
+          }
+      
+          //获取IK和FK的偏差，如果是被缩放的网格体就会产生这个偏差。
+          const FVector IK_To_FK_Translation = FKLocation - IKLocation;
+      
+          // If we're not translating, don't send any bones to update.
+          //有偏差
+          if (!IK_To_FK_Translation.IsNearlyZero())
+          {
+              // Move desired bones
+              //移动IKBonesToMove容器中的骨骼IK_To_FK_Translation距离。
+              //在例子中一般是ik_hand_gun,它是IK骨骼的父骨骼，它会带动IK骨骼移动。
+              for (const FBoneReference& BoneReference : IKBonesToMove)
+              {
+                  if (BoneReference.IsValidToEvaluate(BoneContainer))
+                  {
+                      const FCompactPoseBoneIndex BoneIndex = BoneReference.GetCompactPoseIndex(BoneContainer);
+                      FTransform BoneTransform = Output.Pose.GetComponentSpaceTransform(BoneIndex);
+                      BoneTransform.AddToTranslation(IK_To_FK_Translation);
+      
+                      OutBoneTransforms.Add(FBoneTransform(BoneIndex, BoneTransform));
+                  }
+              }
+      
+              if (OutBoneTransforms.Num() > 0)
+              {
+                  OutBoneTransforms.Sort(FCompareBoneTransformIndex());
+              }
+          }
+      
+          #if ANIM_TRACE_ENABLED
+          TRACE_ANIM_NODE_VALUE(Output, TEXT("Hand FK Weight"), HandFKWeight);
+          #endif
+      }
+      ```
+  
+      
+  
   - Two bone ik
+  
   - 创建Vitrual bone：Weapon_r 到 hand_l。
     - 目的：让左手不要有对齐延迟，而是迅速对齐。(复习的时候看不明白就去看视频198)
     - 原理：复制Virtrual bone的位移和旋转给ik_hand_l，让hand_l通过Two bone ik节点去对齐。
+  
 - Bug2：根据Equipped Gate，避免在Unarmed的时候还进行HandIK
   - 在Anim Graph中使用Blend Pose by bool节点，判断是否是Unarmed状态。
 
@@ -154,7 +264,7 @@
 ### Reload
 
 - 使用节点Layer Blend Per Bone：
-  - 使用Blend Mask模式，
+  - 使用Blend Mask模式
   - 在骨骼资产中创建Blend Mask
   - Blend Mask可以详细设置每一根骨骼被混合的程度
 
@@ -162,6 +272,15 @@
 
 - Distance Matching：根据运动距离，**调整播放速度**
 - Stride Warping：不调整播放速度，**调整步长**
+
+### UpperBody / LowerBody Split
+
+- 通过使用Layer Blend Per Bone节点，并设置Blend Mask——设置影响的骨骼的权重，把该BlendMask设置进该节点实现上下肢分离。
+- 当使用蒙太奇播放Reload动画时，根据Blend Mask的骨骼影响权重来设置混合骨骼位置。
+
+### 动画绑定函数
+
+- 使动画资源懒加载，只有在被用到时才会被加载
 
 
 
