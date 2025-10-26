@@ -60,7 +60,7 @@
 
 - 使用State Alias合并转换路径。
 - 进入Pivot时机：使用点积计算 加速度 和 速度方向夹角，从而判断Pivot状态进入时机。
-  - 点积为1，方向相反的时候才进入Pivot状态。
+  - 点积为-1，即方向相反的时候才进入Pivot状态。
 - Pivot -> Cycle：两个条件
   - Pivot动画播放完：使用Notify Satate
   - Pivot途中突然改变运动方向：即不按照原本Pivot的运动趋势进行运动，那么就直接终止Pivot而进行Cycle。
@@ -255,6 +255,7 @@
   
   - 创建Vitrual bone：Weapon_r 到 hand_l。
     - 目的：让左手不要有对齐延迟，而是迅速对齐。(复习的时候看不明白就去看视频198)
+      - 是因为，左手的对齐是根据右手来的，不是根据枪支来的，所以当行进中瞄准不同方向时，左手的对齐会有延迟。但是我们的目的是为了让左手根据枪支的移动而移动，所以我们需要一个虚拟骨骼，把这个虚拟骨骼的旋转和位置复制给ik_hand_l，让左手能够快速对齐。
     - 原理：复制Virtrual bone的位移和旋转给ik_hand_l，让hand_l通过Two bone ik节点去对齐。
   
 - Bug2：根据Equipped Gate，避免在Unarmed的时候还进行HandIK
